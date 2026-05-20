@@ -1,0 +1,17 @@
+{
+  "name": "nodejs-microservices",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["api-gateway", "services/*"],
+  "scripts": {
+    "install:all": "npm install && npm install --workspaces",
+    "start:gateway": "cd api-gateway && npm start",
+    "start:users": "cd services/user-service && npm start",
+    "start:products": "cd services/product-service && npm start",
+    "start:orders": "cd services/order-service && npm start",
+    "dev": "concurrently \"npm run start:users\" \"npm run start:products\" \"npm run start:orders\" \"npm run start:gateway\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
