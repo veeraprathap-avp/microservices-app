@@ -1,12 +1,21 @@
 'use strict';
 
-process.env.NODE_ENV  = 'test';
-process.env.JWT_SECRET = 'test-secret-key';
+import { fetch as mockFetch } from 'undici';
+import jwt from 'jsonwebtoken';
 
 jest.mock('undici', () => ({ fetch: jest.fn() }));
+jest.mock('jsonwebtoken', () => {
+  const originalJwt = jest.requireActual('jsonwebtoken');
+  return {
+    __esModule: true,
+    default: originalJwt,
+    ...originalJwt,
+    sign: jest.fn(),
+  };
+});
 
-const { fetch: mockFetch } = require('undici');
-const jwt = require('jsonwebtoken');
+process.env.NODE_ENV  = 'test';
+process.env.JWT_SECRET = 'test-secret-key';
 
 function mockResponse(body, status = 200) {
   return Promise.resolve({
@@ -16,7 +25,11 @@ function mockResponse(body, status = 200) {
 }
 
 let app;
-beforeAll(async () => { app = require('../src/server'); await app.ready(); });
+beforeAll(async () => {
+  const { default: server } = await import('../src/server.js');
+  app = server;
+  await app.ready();
+});
 afterAll(async () => { await app.close(); });
 afterEach(() => jest.clearAllMocks());
 

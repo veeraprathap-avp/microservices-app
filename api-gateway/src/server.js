@@ -1,6 +1,11 @@
 'use strict';
+import fastifySensible from '@fastify/sensible';
+import fastifyRateLimit from '@fastify/rate-limit';
+import fastifyCors from '@fastify/cors';
+import fastifyJWT from '@fastify/jwt';
+import Fastify from 'fastify';
 
-const fastify = require('fastify')({
+const fastify = Fastify({
   logger: {
     transport: {
       target: 'pino-pretty',
@@ -14,14 +19,14 @@ const { GATEWAY_PORT = 3000, JWT_SECRET = 'supersecretkey' } = process.env;
 // ── Plugins ───────────────────────────────────────────────────────────────────
 
 async function registerPlugins() {
-  await fastify.register(require('@fastify/sensible'));
+  await fastify.register(fastifySensible);
 
-  await fastify.register(require('@fastify/cors'), {
+  await fastify.register(fastifyCors, {
     origin: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
-  await fastify.register(require('@fastify/rate-limit'), {
+  await fastify.register(fastifyRateLimit, {
     max: 100,
     timeWindow: '1 minute',
     errorResponseBuilder: () => ({
@@ -31,7 +36,7 @@ async function registerPlugins() {
     }),
   });
 
-  await fastify.register(require('@fastify/jwt'), { secret: JWT_SECRET });
+  await fastify.register(fastifyJWT, { secret: JWT_SECRET });
 }
 
 // ── Auth decorator ─────────────────────────────────────────────────────────
@@ -54,7 +59,7 @@ const SERVICES = {
 
 // ── Generic upstream proxy helper ─────────────────────────────────────────────
 
-const { fetch } = require('undici');
+import { fetch } from 'undici';
 
 async function proxyRequest(serviceUrl, path, method, body, headers = {}) {
   const url = `${serviceUrl}${path}`;
@@ -218,4 +223,4 @@ fastify.setErrorHandler((error, request, reply) => {
 if (process.env.NODE_ENV === 'test') {
   // Re-run boot without listen for test env
 }
-module.exports = fastify;
+export default fastify;
