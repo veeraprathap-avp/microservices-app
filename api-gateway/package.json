@@ -17,8 +17,11 @@
     "@fastify/sensible": "^5.5.0",
     "fastify": "^4.28.1",
     "fastify-plugin": "^4.5.1",
+    "fast-json-stringify": "^5.14.1",
+    "pino": "^8.18.0",
     "pino-pretty": "^11.2.2",
-    "undici": "^6.19.7"
+    "undici": "^6.19.7",
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

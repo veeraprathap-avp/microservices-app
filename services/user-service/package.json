@@ -10,6 +10,10 @@
   },
   "dependencies": {
     "express": "^4.19.2",
+    "fast-json-stringify": "^5.16.1",
+    "mssql": "^12.5.4",
+    "pino": "^8.18.0",
+    "pino-pretty": "^11.2.2",
     "uuid": "^10.0.0"
   },
   "devDependencies": {

@@ -2,9 +2,14 @@
 
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
+const { expressCorrelationIdMiddleware } = require('./utils/correlation-id');
+const { initLogger, requestLoggerMiddleware } = require('./utils/logger');
 
 const app = express();
 app.use(express.json());
+
+// Initialize logger for this service
+initLogger('user-service');
 
 // ── In-memory store ───────────────────────────────────────────────────────────
 
@@ -23,10 +28,11 @@ app.locals.resetUsers = () => {
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 
-app.use((req, _res, next) => {
-  if (process.env.NODE_ENV !== 'test') console.log(`[user-service] ${req.method} ${req.path}`);
-  next();
-});
+// Correlation ID middleware (extract or create x-correlation-id)
+app.use(expressCorrelationIdMiddleware());
+
+// Request logger middleware with structured logging and correlation ID
+app.use(requestLoggerMiddleware('user-service'));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 

@@ -2,9 +2,14 @@
 
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
+const { expressCorrelationIdMiddleware } = require('./utils/correlation-id');
+const { initLogger, requestLoggerMiddleware } = require('./utils/logger');
 
 const app = express();
 app.use(express.json());
+
+// Initialize logger for this service
+initLogger('order-service');
 
 const STATUSES = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
 
@@ -25,10 +30,11 @@ app.locals.resetOrders = () => {
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 
-app.use((req, _res, next) => {
-  if (process.env.NODE_ENV !== 'test') console.log(`[order-service] ${req.method} ${req.path}`);
-  next();
-});
+// Correlation ID middleware (extract or create x-correlation-id)
+app.use(expressCorrelationIdMiddleware());
+
+// Request logger middleware with structured logging and correlation ID
+app.use(requestLoggerMiddleware('order-service'));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 

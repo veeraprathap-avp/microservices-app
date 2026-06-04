@@ -2,8 +2,10 @@
 import fastifySensible from '@fastify/sensible';
 import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyCors from '@fastify/cors';
-import fastifyJWT from '@fastify/jwt';
 import Fastify from 'fastify';
+import { v4 as uuidv4 } from 'uuid';
+import { initializeJWT, decorateAuthenticateMethod, generateToken } from './utils/auth.js';
+import { serializeJSON } from './utils/serialization.js';
 
 const fastify = Fastify({
   logger: {
@@ -13,6 +15,7 @@ const fastify = Fastify({
     },
   },
 });
+
 
 const { GATEWAY_PORT = 3000, JWT_SECRET = 'supersecretkey' } = process.env;
 
@@ -36,46 +39,72 @@ async function registerPlugins() {
     }),
   });
 
-  await fastify.register(fastifyJWT, { secret: JWT_SECRET });
+  // Initialize JWT with the secret (used for both signing AND verifying tokens)
+  await initializeJWT(fastify, JWT_SECRET);
+
+  // Add the authentication decorator for protected routes
+  decorateAuthenticateMethod(fastify);
 }
 
 // ── Auth decorator ─────────────────────────────────────────────────────────
 
-fastify.decorate('authenticate', async function (request, reply) {
-  try {
-    await request.jwtVerify();
-  } catch (err) {
-    reply.send(err);
-  }
+// No need to define here anymore - it's in the auth module and registered via decorateAuthenticateMethod()
+// But we keep this comment for reference:
+// The decorator is used like: { onRequest: [fastify.authenticate] }
+// It automatically:
+// 1. Reads the Authorization: Bearer <token> header
+// 2. Verifies the token using the JWT secret
+// 3. Throws error if token is invalid or missing
+
+// ── Correlation ID hook ────────────────────────────────────────────────────────
+
+fastify.addHook('onRequest', async (request, reply) => {
+  const incomingCorrelationId = request.headers['x-correlation-id'];
+  const correlationId = incomingCorrelationId || uuidv4();
+  request.correlationId = correlationId;
+  reply.header('x-correlation-id', correlationId);
+  fastify.log.info({ correlationId, event: 'request_received', method: request.method, path: request.url }, 'Incoming request');
 });
 
 // ── Service registry ──────────────────────────────────────────────────────────
 
 const SERVICES = {
-  users:    { url: 'http://localhost:3001', healthPath: '/health' },
+  users: { url: 'http://localhost:3001', healthPath: '/health' },
   products: { url: 'http://localhost:3002', healthPath: '/health' },
-  orders:   { url: 'http://localhost:3003', healthPath: '/health' },
+  orders: { url: 'http://localhost:3003', healthPath: '/health' },
 };
 
 // ── Generic upstream proxy helper ─────────────────────────────────────────────
 
 import { fetch } from 'undici';
 
-async function proxyRequest(serviceUrl, path, method, body, headers = {}) {
+async function proxyRequest(serviceUrl, path, method, body, correlationId, headers = {}) {
   const url = `${serviceUrl}${path}`;
   const options = {
     method,
     headers: {
       'Content-Type': 'application/json',
       'x-gateway': 'fastify-gateway',
+      'x-correlation-id': correlationId,
       ...headers,
     },
   };
-  if (body && method !== 'GET') options.body = JSON.stringify(body);
+  // Use fast-json-stringify for efficient JSON serialization (2-3x faster than JSON.stringify)
+  if (body && method !== 'GET') options.body = serializeJSON(body, 'generic');
 
-  const res = await fetch(url, options);
-  const data = await res.json().catch(() => ({}));
-  return { status: res.status, data };
+  const start = Date.now();
+  fastify.log.info({ service: 'gateway', event: 'proxy_request_start', serviceUrl, path, method, correlationId }, 'Proxying request to service');
+  try {
+    const res = await fetch(url, options);
+    const duration = Date.now() - start;
+    const data = await res.json().catch(() => ({}));
+    fastify.log.info({ service: 'gateway', event: 'proxy_request_end', serviceUrl, path, method, status: res.status, duration, correlationId }, 'Received response from service');
+    return { status: res.status, data };
+  } catch (err) {
+    const duration = Date.now() - start;
+    fastify.log.error({ service: 'gateway', event: 'proxy_request_error', serviceUrl, path, method, duration, err: err.message, correlationId }, 'Error calling upstream service');
+    return { status: 502, data: { error: 'Bad Gateway', message: err.message } };
+  }
 }
 
 // ── Public routes ─────────────────────────────────────────────────────────────
@@ -85,10 +114,10 @@ fastify.get('/', async () => ({
   framework: 'Fastify v4',
   version: '1.0.0',
   routes: {
-    auth:     'POST /auth/login',
-    users:    '/api/users/*',
+    auth: 'POST /auth/login',
+    users: '/api/users/*',
     products: '/api/products/*',
-    orders:   '/api/orders/*  [JWT required]',
+    orders: '/api/orders/*',//  [JWT required]
   },
 }));
 
@@ -114,73 +143,74 @@ fastify.post('/auth/login', async (request, reply) => {
   if (!username || !password) {
     return reply.badRequest('username and password are required');
   }
-  const token = fastify.jwt.sign({ sub: username, role: 'user' }, { expiresIn: '1h' });
+  // Use the generateToken function from auth module
+  const token = generateToken(fastify, { sub: username, role: 'user' });
   return { token, expiresIn: 3600 };
 });
 
 // ── User routes (public read, protected write) ────────────────────────────────
-
+//public route
 fastify.get('/api/users', async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.users.url, '/users', 'GET');
+  const { status, data } = await proxyRequest(SERVICES.users.url, '/users', 'GET', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
 fastify.get('/api/users/:id', async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.users.url, `/users/${request.params.id}`, 'GET');
+  const { status, data } = await proxyRequest(SERVICES.users.url, `/users/${request.params.id}`, 'GET', null, request.correlationId);
   return reply.status(status).send(data);
 });
-
+//protected routes
 fastify.post('/api/users', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.users.url, '/users', 'POST', request.body);
+  const { status, data } = await proxyRequest(SERVICES.users.url, '/users', 'POST', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
 
 fastify.put('/api/users/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.users.url, `/users/${request.params.id}`, 'PUT', request.body);
+  const { status, data } = await proxyRequest(SERVICES.users.url, `/users/${request.params.id}`, 'PUT', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
 
 fastify.delete('/api/users/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.users.url, `/users/${request.params.id}`, 'DELETE');
+  const { status, data } = await proxyRequest(SERVICES.users.url, `/users/${request.params.id}`, 'DELETE', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
 // ── Product routes ────────────────────────────────────────────────────────────
 
 fastify.get('/api/products', async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.products.url, '/products', 'GET');
+  const { status, data } = await proxyRequest(SERVICES.products.url, '/products', 'GET', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
 fastify.get('/api/products/:id', async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.products.url, `/products/${request.params.id}`, 'GET');
+  const { status, data } = await proxyRequest(SERVICES.products.url, `/products/${request.params.id}`, 'GET', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
 fastify.post('/api/products', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.products.url, '/products', 'POST', request.body);
+  const { status, data } = await proxyRequest(SERVICES.products.url, '/products', 'POST', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
 
 fastify.put('/api/products/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.products.url, `/products/${request.params.id}`, 'PUT', request.body);
+  const { status, data } = await proxyRequest(SERVICES.products.url, `/products/${request.params.id}`, 'PUT', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
 
 fastify.delete('/api/products/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.products.url, `/products/${request.params.id}`, 'DELETE');
+  const { status, data } = await proxyRequest(SERVICES.products.url, `/products/${request.params.id}`, 'DELETE', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
 // ── Order routes (all protected) ──────────────────────────────────────────────
 
 fastify.get('/api/orders', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.orders.url, '/orders', 'GET');
+  const { status, data } = await proxyRequest(SERVICES.orders.url, '/orders', 'GET', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
 fastify.get('/api/orders/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.orders.url, `/orders/${request.params.id}`, 'GET');
+  const { status, data } = await proxyRequest(SERVICES.orders.url, `/orders/${request.params.id}`, 'GET', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
@@ -189,13 +219,14 @@ fastify.post('/api/orders', { onRequest: [fastify.authenticate] }, async (reques
   const { status, data } = await proxyRequest(
     SERVICES.orders.url, '/orders', 'POST',
     { ...request.body, userId: user.sub },
+    request.correlationId,
     { 'x-user-id': user.sub, 'x-user-role': user.role }
   );
   return reply.status(status).send(data);
 });
 
 fastify.patch('/api/orders/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-  const { status, data } = await proxyRequest(SERVICES.orders.url, `/orders/${request.params.id}`, 'PATCH', request.body);
+  const { status, data } = await proxyRequest(SERVICES.orders.url, `/orders/${request.params.id}`, 'PATCH', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
 
