@@ -19,13 +19,13 @@ const products = new Map([
   ['p3', { id: 'p3', name: '4K Monitor 27"',    category: 'Electronics', price: 499.99, stock: 75,  createdAt: new Date().toISOString() }],
 ]);
 
-app.locals.getProducts = () => products;
-app.locals.resetProducts = () => {
-  products.clear();
-  products.set('p1', { id: 'p1', name: 'Laptop Pro 15',     category: 'Electronics', price: 1299.99, stock: 50,  createdAt: new Date().toISOString() });
-  products.set('p2', { id: 'p2', name: 'Mechanical Keyboard', category: 'Peripherals', price: 149.99, stock: 200, createdAt: new Date().toISOString() });
-  products.set('p3', { id: 'p3', name: '4K Monitor 27"',    category: 'Electronics', price: 499.99, stock: 75,  createdAt: new Date().toISOString() });
-};
+// app.locals.getProducts = () => products;
+// app.locals.resetProducts = () => {
+//   products.clear();
+//   products.set('p1', { id: 'p1', name: 'Laptop Pro 15',     category: 'Electronics', price: 1299.99, stock: 50,  createdAt: new Date().toISOString() });
+//   products.set('p2', { id: 'p2', name: 'Mechanical Keyboard', category: 'Peripherals', price: 149.99, stock: 200, createdAt: new Date().toISOString() });
+//   products.set('p3', { id: 'p3', name: '4K Monitor 27"',    category: 'Electronics', price: 499.99, stock: 75,  createdAt: new Date().toISOString() });
+// };
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 

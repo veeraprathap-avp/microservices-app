@@ -9,7 +9,9 @@
     "test:coverage": "jest --coverage --forceExit --detectOpenHandles"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
+    "kafkajs": "^2.2.4",
     "pino": "^8.18.0",
     "pino-pretty": "^11.2.2",
     "uuid": "^10.0.0"

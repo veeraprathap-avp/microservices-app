@@ -22,7 +22,11 @@ function initLogger(serviceName = 'service', level = process.env.LOG_LEVEL || 'i
         };
 
     loggerInstance = pino(
-      { level, transport },
+      {
+        level,
+        base: { service: serviceName },
+        transport,
+      },
       pino.destination(1) // stdout
     );
   }

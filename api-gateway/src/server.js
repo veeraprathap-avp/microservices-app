@@ -48,13 +48,12 @@ async function registerPlugins() {
 
 // ── Auth decorator ─────────────────────────────────────────────────────────
 
-// No need to define here anymore - it's in the auth module and registered via decorateAuthenticateMethod()
-// But we keep this comment for reference:
-// The decorator is used like: { onRequest: [fastify.authenticate] }
-// It automatically:
-// 1. Reads the Authorization: Bearer <token> header
-// 2. Verifies the token using the JWT secret
-// 3. Throws error if token is invalid or missing
+// The authentication decorator is registered during plugin initialization.
+// Protected route definitions use a runtime wrapper so the hook is available
+// after registerPlugins() completes.
+async function authenticate(request, reply) {
+  return fastify.authenticate(request, reply);
+}
 
 // ── Correlation ID hook ────────────────────────────────────────────────────────
 
@@ -160,17 +159,17 @@ fastify.get('/api/users/:id', async (request, reply) => {
   return reply.status(status).send(data);
 });
 //protected routes
-fastify.post('/api/users', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.post('/api/users', { onRequest: [authenticate] }, async (request, reply) => {
   const { status, data } = await proxyRequest(SERVICES.users.url, '/users', 'POST', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
 
-fastify.put('/api/users/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.put('/api/users/:id', { onRequest: [authenticate] }, async (request, reply) => {
   const { status, data } = await proxyRequest(SERVICES.users.url, `/users/${request.params.id}`, 'PUT', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
 
-fastify.delete('/api/users/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.delete('/api/users/:id', { onRequest: [authenticate] }, async (request, reply) => {
   const { status, data } = await proxyRequest(SERVICES.users.url, `/users/${request.params.id}`, 'DELETE', null, request.correlationId);
   return reply.status(status).send(data);
 });
@@ -187,34 +186,34 @@ fastify.get('/api/products/:id', async (request, reply) => {
   return reply.status(status).send(data);
 });
 
-fastify.post('/api/products', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.post('/api/products', { onRequest: [authenticate] }, async (request, reply) => {
   const { status, data } = await proxyRequest(SERVICES.products.url, '/products', 'POST', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
 
-fastify.put('/api/products/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.put('/api/products/:id', { onRequest: [authenticate] }, async (request, reply) => {
   const { status, data } = await proxyRequest(SERVICES.products.url, `/products/${request.params.id}`, 'PUT', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
 
-fastify.delete('/api/products/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.delete('/api/products/:id', { onRequest: [authenticate] }, async (request, reply) => {
   const { status, data } = await proxyRequest(SERVICES.products.url, `/products/${request.params.id}`, 'DELETE', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
 // ── Order routes (all protected) ──────────────────────────────────────────────
 
-fastify.get('/api/orders', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.get('/api/orders', { onRequest: [authenticate] }, async (request, reply) => {
   const { status, data } = await proxyRequest(SERVICES.orders.url, '/orders', 'GET', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
-fastify.get('/api/orders/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.get('/api/orders/:id', { onRequest: [authenticate] }, async (request, reply) => {
   const { status, data } = await proxyRequest(SERVICES.orders.url, `/orders/${request.params.id}`, 'GET', null, request.correlationId);
   return reply.status(status).send(data);
 });
 
-fastify.post('/api/orders', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.post('/api/orders', { onRequest: [authenticate] }, async (request, reply) => {
   const user = request.user;
   const { status, data } = await proxyRequest(
     SERVICES.orders.url, '/orders', 'POST',
@@ -225,7 +224,7 @@ fastify.post('/api/orders', { onRequest: [fastify.authenticate] }, async (reques
   return reply.status(status).send(data);
 });
 
-fastify.patch('/api/orders/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+fastify.patch('/api/orders/:id', { onRequest: [authenticate] }, async (request, reply) => {
   const { status, data } = await proxyRequest(SERVICES.orders.url, `/orders/${request.params.id}`, 'PATCH', request.body, request.correlationId);
   return reply.status(status).send(data);
 });
@@ -233,8 +232,17 @@ fastify.patch('/api/orders/:id', { onRequest: [fastify.authenticate] }, async (r
 // ── Error handler ─────────────────────────────────────────────────────────────
 
 fastify.setErrorHandler((error, request, reply) => {
-  const statusCode = error.statusCode ?? 500;
   fastify.log.error(error);
+
+  if (error.name === 'UnauthorizedError' || error.statusCode === 401) {
+    return reply.status(401).send({
+      statusCode: 401,
+      error: 'Unauthorized',
+      message: error.message || 'Invalid or expired token',
+    });
+  }
+
+  const statusCode = error.statusCode ?? 500;
   reply.status(statusCode).send({
     statusCode,
     error: error.name ?? 'Internal Server Error',
@@ -247,7 +255,7 @@ fastify.setErrorHandler((error, request, reply) => {
 (async () => {
   await registerPlugins();
   await fastify.listen({ port: Number(GATEWAY_PORT), host: '0.0.0.0' });
-  fastify.log.info(`🚀 API Gateway running on port ${GATEWAY_PORT}`);
+  fastify.log.info(`API Gateway running on port ${GATEWAY_PORT}`);
 })();
 
 // Export for testing

@@ -20,13 +20,13 @@ const orders = new Map([
   ['o2', { id: 'o2', userId: 'u2', productId: 'p2', quantity: 2, total: 299.98,  status: 'shipped',   createdAt: new Date().toISOString() }],
 ]);
 
-app.locals.getOrders  = () => orders;
-app.locals.getStatuses = () => STATUSES;
-app.locals.resetOrders = () => {
-  orders.clear();
-  orders.set('o1', { id: 'o1', userId: 'u1', productId: 'p1', quantity: 1, total: 1299.99, status: 'delivered', createdAt: new Date().toISOString() });
-  orders.set('o2', { id: 'o2', userId: 'u2', productId: 'p2', quantity: 2, total: 299.98,  status: 'shipped',   createdAt: new Date().toISOString() });
-};
+// app.locals.getOrders  = () => orders;
+// app.locals.getStatuses = () => STATUSES;
+// app.locals.resetOrders = () => {
+//   orders.clear();
+//   orders.set('o1', { id: 'o1', userId: 'u1', productId: 'p1', quantity: 1, total: 1299.99, status: 'delivered', createdAt: new Date().toISOString() });
+//   orders.set('o2', { id: 'o2', userId: 'u2', productId: 'p2', quantity: 2, total: 299.98,  status: 'shipped',   createdAt: new Date().toISOString() });
+// };
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 
@@ -71,6 +71,9 @@ app.post('/orders', (req, res) => {
     createdAt: new Date().toISOString(),
   };
   orders.set(order.id, order);
+  //add lineitems details to order object before publishing event
+  // Publish ORDER_PLACED event to Kafka
+  publishOrderCreatedEvent(order);
   res.status(201).json({ data: order, message: 'Order placed' });
 });
 

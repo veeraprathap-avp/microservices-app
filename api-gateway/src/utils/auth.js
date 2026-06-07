@@ -36,20 +36,6 @@ async function initializeJWT(fastify, jwtSecret) {
     secret: jwtSecret,
     sign: { expiresIn: '1h' }, // Default expiration for signed tokens
   });
-
-  // Add custom error handler for JWT errors
-  fastify.setErrorHandler((error, request, reply) => {
-    if (error.name === 'UnauthorizedError') {
-      reply.status(401).send({
-        statusCode: 401,
-        error: 'Unauthorized',
-        message: 'Invalid or expired token',
-      });
-      return;
-    }
-    // Let other errors be handled by the default error handler
-    throw error;
-  });
 }
 
 /**
@@ -72,8 +58,8 @@ function decorateAuthenticateMethod(fastify) {
       // Throws if token is invalid or expired
       await request.jwtVerify();
     } catch (err) {
-      // Token verification failed
-      reply.send(err);
+      // Propagate JWT verification failures so the server error handler can map them.
+      throw err;
     }
   });
 }
