@@ -80,6 +80,28 @@ function generateToken(fastify, payload, options = {}) {
 }
 
 /**
+ * Generate a JWT access token
+ * 
+ * @param {Object} fastify - Fastify instance
+ * @param {Object} payload - Data to encode in token
+ * @returns {string} JWT access token
+ */
+function generateAccessToken(fastify, payload) {
+  return generateToken(fastify, { ...payload, tokenType: 'access' }, { expiresIn: '1h' });
+}
+
+/**
+ * Generate a JWT refresh token
+ * 
+ * @param {Object} fastify - Fastify instance
+ * @param {Object} payload - Data to encode in token
+ * @returns {string} JWT refresh token
+ */
+function generateRefreshToken(fastify, payload) {
+  return generateToken(fastify, { ...payload, tokenType: 'refresh' }, { expiresIn: '7d' });
+}
+
+/**
  * Verify a JWT token manually
  * 
  * @param {Object} fastify - Fastify instance
@@ -101,6 +123,22 @@ function verifyToken(fastify, token) {
   } catch (err) {
     throw new Error(`Token verification failed: ${err.message}`);
   }
+}
+
+/**
+ * Verify a refresh token and ensure its type is refresh
+ * 
+ * @param {Object} fastify - Fastify instance
+ * @param {string} token - Refresh token to verify
+ * @returns {Object} Decoded token payload
+ * @throws {Error} If token is invalid or not a refresh token
+ */
+function verifyRefreshToken(fastify, token) {
+  const payload = verifyToken(fastify, token);
+  if (payload.tokenType !== 'refresh') {
+    throw new Error('Invalid refresh token');
+  }
+  return payload;
 }
 
 /**
@@ -142,7 +180,10 @@ export {
   initializeJWT,
   decorateAuthenticateMethod,
   generateToken,
+  generateAccessToken,
+  generateRefreshToken,
   verifyToken,
+  verifyRefreshToken,
   extractToken,
   getTokenPayload,
 };

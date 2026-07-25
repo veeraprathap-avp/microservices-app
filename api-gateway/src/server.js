@@ -4,7 +4,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyCors from '@fastify/cors';
 import Fastify from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { initializeJWT, decorateAuthenticateMethod, generateToken } from './utils/auth.js';
+import { initializeJWT, decorateAuthenticateMethod, generateAccessToken, generateRefreshToken, verifyRefreshToken } from './utils/auth.js';
 import { serializeJSON } from './utils/serialization.js';
 
 const fastify = Fastify({
@@ -142,9 +142,32 @@ fastify.post('/auth/login', async (request, reply) => {
   if (!username || !password) {
     return reply.badRequest('username and password are required');
   }
-  // Use the generateToken function from auth module
-  const token = generateToken(fastify, { sub: username, role: 'user' });
-  return { token, expiresIn: 3600 };
+
+  const payload = { sub: username, role: 'user' };
+  const token = generateAccessToken(fastify, payload);
+  const refreshToken = generateRefreshToken(fastify, payload);
+
+  return {
+    token,
+    expiresIn: 3600,
+    refreshToken,
+    refreshExpiresIn: 604800,
+  };
+});
+
+fastify.post('/auth/refresh', async (request, reply) => {
+  const { refreshToken } = request.body ?? {};
+  if (!refreshToken) {
+    return reply.badRequest('refreshToken is required');
+  }
+
+  try {
+    const payload = verifyRefreshToken(fastify, refreshToken);
+    const token = generateAccessToken(fastify, { sub: payload.sub, role: payload.role });
+    return { token, expiresIn: 3600 };
+  } catch (err) {
+    return reply.unauthorized(err.message);
+  }
 });
 
 // ── User routes (public read, protected write) ────────────────────────────────

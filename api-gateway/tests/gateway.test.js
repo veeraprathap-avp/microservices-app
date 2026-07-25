@@ -10,7 +10,7 @@ jest.mock('jsonwebtoken', () => {
     __esModule: true,
     default: originalJwt,
     ...originalJwt,
-    sign: jest.fn(),
+    sign: jest.fn((...args) => originalJwt.sign(...args)),
   };
 });
 
@@ -72,12 +72,14 @@ describe('GET /health', () => {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 describe('POST /auth/login', () => {
-  test('returns JWT for any credentials', async () => {
+  test('returns JWT and refresh token for any credentials', async () => {
     const res = await inject('POST', '/auth/login', { payload: { username: 'alice', password: 'pw' } });
     const body = JSON.parse(res.body);
     expect(res.statusCode).toBe(200);
     expect(body.token.split('.')).toHaveLength(3);
+    expect(body.refreshToken.split('.')).toHaveLength(3);
     expect(body.expiresIn).toBe(3600);
+    expect(body.refreshExpiresIn).toBe(604800);
   });
   test('returns 400 when username missing', async () => {
     const res = await inject('POST', '/auth/login', { payload: { password: 'x' } });
@@ -90,6 +92,29 @@ describe('POST /auth/login', () => {
   test('returns 400 for empty body', async () => {
     const res = await inject('POST', '/auth/login', { payload: {} });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('POST /auth/refresh', () => {
+  test('returns a new access token when refresh token is valid', async () => {
+    const loginRes = await inject('POST', '/auth/login', { payload: { username: 'alice', password: 'pw' } });
+    const loginBody = JSON.parse(loginRes.body);
+    const refreshRes = await inject('POST', '/auth/refresh', { payload: { refreshToken: loginBody.refreshToken } });
+    const refreshBody = JSON.parse(refreshRes.body);
+
+    expect(refreshRes.statusCode).toBe(200);
+    expect(refreshBody.token.split('.')).toHaveLength(3);
+    expect(refreshBody.expiresIn).toBe(3600);
+  });
+
+  test('returns 400 when refreshToken is missing', async () => {
+    const res = await inject('POST', '/auth/refresh', { payload: {} });
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('returns 401 when refresh token is invalid', async () => {
+    const res = await inject('POST', '/auth/refresh', { payload: { refreshToken: 'invalid.token.value' } });
+    expect(res.statusCode).toBe(401);
   });
 });
 
